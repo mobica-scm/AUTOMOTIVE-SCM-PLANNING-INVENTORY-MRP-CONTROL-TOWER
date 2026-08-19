@@ -8,6 +8,8 @@ const LINKS = [
   { href: "/exceptions", label: "Exceptions", icon: "!" },
   { href: "/mrp", label: "MRP Grid", icon: "▦" },
   { href: "/planned-orders", label: "Planned Orders", icon: "▤" },
+  { href: "/purchase-orders", label: "Purchase Orders", icon: "▣" },
+  { href: "/shipments", label: "Shipments", icon: "⇢" },
   { href: "/forecast", label: "Forecast", icon: "≈" },
   { href: "/materials", label: "Materials", icon: "◆" },
   { href: "/suppliers", label: "Suppliers", icon: "⌂" },

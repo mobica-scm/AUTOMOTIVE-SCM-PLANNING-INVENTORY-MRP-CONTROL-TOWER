@@ -44,7 +44,28 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     data.status = "CONVERTED";
   }
 
-  const updated = await prisma.plannedOrder.update({ where: { id }, data });
+  const updated = await prisma.$transaction(async (tx) => {
+    const po = await tx.plannedOrder.update({ where: { id }, data });
+
+    // Converting doesn't just flip a status — it produces an actual PO,
+    // pre-filled from the planned order's own numbers, still editable
+    // by the buyer afterward.
+    if (action === "CONVERT") {
+      const poNumber = `PR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${id.slice(-6).toUpperCase()}`;
+      await tx.purchaseOrder.create({
+        data: {
+          poNumber,
+          supplierPlantId: existing.supplierPlantId,
+          orderDate: new Date(),
+          lines: {
+            create: [{ materialId: existing.materialId, quantity: existing.finalQty, requiredDate: existing.needDate }],
+          },
+        },
+      });
+    }
+
+    return po;
+  });
 
   await prisma.auditLog.create({
     data: {
