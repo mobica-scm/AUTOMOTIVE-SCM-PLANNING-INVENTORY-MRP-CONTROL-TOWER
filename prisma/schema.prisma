@@ -1,0 +1,371 @@
+// SCM Planning, Inventory & MRP Control Tower — data model
+//
+// Dev/demo runs on SQLite so the app boots with zero external services.
+// The shape is Postgres-ready (no SQLite-only features used); switching
+// `provider` to "postgresql" and pointing DATABASE_URL at a real instance
+// is the only change needed for production. Enums are modeled as
+// documented String fields because SQLite has no native enum type.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------
+// Identity
+// ---------------------------------------------------------------------
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      String // PLANNER | BUYER | WAREHOUSE | MANAGER | ADMIN
+  createdAt DateTime @default(now())
+
+  forecastVersions      ForecastVersion[]
+  plannedOrderDecisions PlannedOrder[]    @relation("DecidedBy")
+  auditLogs             AuditLog[]
+}
+
+// ---------------------------------------------------------------------
+// Demand side: Account -> Project -> Variant -> Forecast
+// ---------------------------------------------------------------------
+
+model Account {
+  id        String   @id @default(cuid())
+  name      String   @unique // e.g. "Citroen", "GM", "BMW & Geely"
+  createdAt DateTime @default(now())
+
+  projects        Project[]
+  ForecastVersion ForecastVersion[]
+}
+
+model Project {
+  id         String   @id @default(cuid())
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id])
+  name       String // e.g. "C4X / IMP"
+  kitsPerLot Int      @default(48) // "a Lot is about 48 Kits (Vehicles)"
+  createdAt  DateTime @default(now())
+
+  variants         ProjectVariant[]
+  bomLines         BOMLine[]
+  forecastVersions ForecastVersion[]
+  forecastStagings ForecastStaging[]
+
+  @@unique([accountId, name])
+}
+
+model ProjectVariant {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  code      String // "L2", "L3", "L3 Opt." ...
+  label     String?
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, code])
+}
+
+model ForecastVersion {
+  id             String    @id @default(cuid())
+  accountId      String
+  account        Account   @relation(fields: [accountId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  projectId      String
+  project        Project   @relation(fields: [projectId], references: [id])
+  versionNumber  Int
+  sourceFileName String?
+  templateName   String? // ForecastMappingTemplate used, if any
+  uploadedById   String?
+  uploadedBy     User?     @relation(fields: [uploadedById], references: [id])
+  uploadedAt     DateTime  @default(now())
+  effectiveDate  DateTime?
+  status         String    @default("DRAFT") // DRAFT | CONFIRMED | SUPERSEDED
+  notes          String?
+
+  lines ForecastLine[]
+
+  @@unique([projectId, versionNumber])
+}
+
+model ForecastLine {
+  id                String          @id @default(cuid())
+  forecastVersionId String
+  forecastVersion   ForecastVersion @relation(fields: [forecastVersionId], references: [id], onDelete: Cascade)
+  variantCode       String // "L2" | "L3"
+  periodStart       DateTime // Monday of the calendar week
+  periodLabel       String // "CW 07"
+  lotRef            String? // "K07", "N013" ...
+  quantityKits      Float // kits/vehicles required in this period
+
+  @@index([forecastVersionId, periodStart])
+}
+
+// Holding area for an uploaded forecast file's parsed-but-unconfirmed
+// rows (Section 5 of the blueprint: "never directly insert unvalidated
+// extracted information into planning"). A staging row only becomes a
+// ForecastLine once a planner reviews and confirms it via /forecast/confirm.
+model ForecastStaging {
+  id             String   @id @default(cuid())
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id])
+  sourceFileName String
+  detectedLayout String // "CW_GRID" | "GENERIC_TABLE"
+  payloadJson    String // candidate ForecastLine rows + detection notes
+  createdAt      DateTime @default(now())
+}
+
+// ---------------------------------------------------------------------
+// BOM: Material x Project x Variant consumption
+// ---------------------------------------------------------------------
+
+model BOMLine {
+  id            String    @id @default(cuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id])
+  materialId    String
+  material      Material  @relation(fields: [materialId], references: [id])
+  qtyPerKitL2   Float     @default(0) // consumption per vehicle when built L2
+  qtyPerKitL3   Float     @default(0) // consumption per vehicle when built L3
+  scrapPct      Float     @default(0)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  changeReason  String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([projectId, materialId, effectiveFrom])
+}
+
+// ---------------------------------------------------------------------
+// Supply side: Supplier -> Plant -> Lead time / Materials
+// ---------------------------------------------------------------------
+
+model SupplierCompany {
+  id        String   @id @default(cuid())
+  name      String   @unique // "Adient", "Tesca", "Sage"
+  createdAt DateTime @default(now())
+
+  plants SupplierPlant[]
+}
+
+model SupplierPlant {
+  id                String          @id @default(cuid())
+  supplierCompanyId String
+  supplierCompany   SupplierCompany @relation(fields: [supplierCompanyId], references: [id])
+  plantName         String // "Adient Zaragoza"
+  country           String?
+  accountCode       String? // internal vendor code, e.g. "21004595"
+  createdAt         DateTime        @default(now())
+
+  leadTimeProfile   LeadTimeProfile?
+  supplierMaterials SupplierMaterial[]
+  purchaseOrders    PurchaseOrder[]
+  plannedOrders     PlannedOrder[]
+
+  @@unique([supplierCompanyId, plantName])
+}
+
+model LeadTimeProfile {
+  id                String        @id @default(cuid())
+  supplierPlantId   String        @unique
+  supplierPlant     SupplierPlant @relation(fields: [supplierPlantId], references: [id])
+  manufacturingDays Int           @default(0)
+  transitDays       Int           @default(0)
+  customsDays       Int           @default(0)
+  inspectionDays    Int           @default(0)
+  updatedAt         DateTime      @updatedAt
+
+  // Total effective lead time = sum of the four phases (calendar days;
+  // working-day calendars are a documented post-MVP upgrade, see README).
+}
+
+model Material {
+  id             String   @id @default(cuid())
+  internalRef    String   @unique // "STL PN" — Mobica's own part number
+  supplierPartNo String? // e.g. Adient PN
+  descriptionEn  String
+  descriptionAr  String?
+  uom            String   @default("EA")
+  moq            Int      @default(0) // minimum order quantity
+  orderMultiple  Int      @default(1) // lot size / order multiple
+  safetyStock    Float    @default(0)
+  criticality    String   @default("STANDARD") // STANDARD | CRITICAL
+  createdAt      DateTime @default(now())
+
+  bomLines          BOMLine[]
+  supplierMaterials SupplierMaterial[]
+  inventoryTxns     InventoryTransaction[]
+  poLines           POLine[]
+  shipmentLines     ShipmentLine[]
+  plannedOrders     PlannedOrder[]
+  exceptions        Exception[]
+}
+
+model SupplierMaterial {
+  id              String        @id @default(cuid())
+  materialId      String
+  material        Material      @relation(fields: [materialId], references: [id])
+  supplierPlantId String
+  supplierPlant   SupplierPlant @relation(fields: [supplierPlantId], references: [id])
+  supplierPartNo  String?
+  moq             Int? // overrides Material.moq for this plant, if set
+  orderMultiple   Int?
+  unitPrice       Float?
+  isPrimary       Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  @@unique([materialId, supplierPlantId])
+}
+
+// ---------------------------------------------------------------------
+// Inventory — append-only transactions; balance is always derived
+// ---------------------------------------------------------------------
+
+model InventoryTransaction {
+  id              String   @id @default(cuid())
+  materialId      String
+  material        Material @relation(fields: [materialId], references: [id])
+  type            String // OPENING | RECEIPT | ISSUE | ADJUSTMENT | SCRAP | TRANSFER
+  quantity        Float // signed: positive increases available stock, negative decreases
+  reference       String? // PO#, shipment#, forecast line, free text
+  note            String?
+  transactionDate DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  @@index([materialId, transactionDate])
+}
+
+// ---------------------------------------------------------------------
+// Procurement & Logistics
+// ---------------------------------------------------------------------
+
+model PurchaseOrder {
+  id              String        @id @default(cuid())
+  poNumber        String        @unique
+  supplierPlantId String
+  supplierPlant   SupplierPlant @relation(fields: [supplierPlantId], references: [id])
+  status          String        @default("OPEN") // OPEN | PARTIALLY_RECEIVED | RECEIVED | CANCELLED
+  orderDate       DateTime?
+  createdAt       DateTime      @default(now())
+
+  lines     POLine[]
+  shipments Shipment[]
+}
+
+model POLine {
+  id              String        @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id])
+  materialId      String
+  material        Material      @relation(fields: [materialId], references: [id])
+  quantity        Float
+  requiredDate    DateTime?
+  unitPrice       Float?
+
+  shipmentLines ShipmentLine[]
+}
+
+model Shipment {
+  id              String         @id @default(cuid())
+  blNumber        String?
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id])
+  mode            String? // Airfreight | Seafreight | Road
+  shippingLine    String?
+  pol             String?
+  pod             String?
+  ets             DateTime?
+  eta             DateTime?
+  customsStatus   String?
+  status          String         @default("PLANNED") // PLANNED | IN_TRANSIT | CUSTOMS | DELIVERED
+  deliveredDate   DateTime?
+  confidence      String         @default("UNCONFIRMED") // CONFIRMED | UNCONFIRMED | AT_RISK
+  createdAt       DateTime       @default(now())
+
+  lines ShipmentLine[]
+}
+
+model ShipmentLine {
+  id         String   @id @default(cuid())
+  shipmentId String
+  shipment   Shipment @relation(fields: [shipmentId], references: [id])
+  poLineId   String?
+  poLine     POLine?  @relation(fields: [poLineId], references: [id])
+  materialId String
+  material   Material @relation(fields: [materialId], references: [id])
+  quantity   Float
+}
+
+// ---------------------------------------------------------------------
+// Planning engine output
+// ---------------------------------------------------------------------
+
+model PlannedOrder {
+  id               String        @id @default(cuid())
+  materialId       String
+  material         Material      @relation(fields: [materialId], references: [id])
+  supplierPlantId  String
+  supplierPlant    SupplierPlant @relation(fields: [supplierPlantId], references: [id])
+  needDate         DateTime
+  orderByDate      DateTime
+  grossRequirement Float
+  netRequirement   Float
+  recommendedQty   Float // after MOQ / order-multiple policy
+  finalQty         Float // recommendedQty unless overridden
+  status           String        @default("SUGGESTED") // SUGGESTED | APPROVED | REJECTED | CONVERTED
+  calcTraceJson    String // stored explain trail (opening stock, scheduled receipts, safety stock...)
+  overrideQty      Float?
+  overrideReason   String?
+  decidedById      String?
+  decidedBy        User?         @relation("DecidedBy", fields: [decidedById], references: [id])
+  decidedAt        DateTime?
+  createdAt        DateTime      @default(now())
+
+  exceptions Exception[]
+}
+
+// ---------------------------------------------------------------------
+// Exceptions
+// ---------------------------------------------------------------------
+
+model Exception {
+  id                String        @id @default(cuid())
+  type              String // SHORTAGE | PO_OVERDUE | SHIPMENT_AT_RISK | FORECAST_SWING | SINGLE_SOURCE | PRODUCTION_NOT_READY
+  severity          String        @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  materialId        String?
+  material          Material?     @relation(fields: [materialId], references: [id])
+  plannedOrderId    String?
+  plannedOrder      PlannedOrder? @relation(fields: [plannedOrderId], references: [id])
+  whatHappened      String
+  why               String
+  impact            String
+  recommendedAction String
+  dueDate           DateTime?
+  owner             String?
+  status            String        @default("OPEN") // OPEN | ACKNOWLEDGED | RESOLVED
+  createdAt         DateTime      @default(now())
+  resolvedAt        DateTime?
+}
+
+// ---------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String // CREATE | UPDATE | OVERRIDE | APPROVE | REJECT
+  beforeJson String?
+  afterJson  String?
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
