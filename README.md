@@ -29,6 +29,19 @@ npm run dev               # http://localhost:3000
 
 `npm run db:seed` is destructive (it wipes and reloads all tables) — use it to reset to a clean, known state at any time.
 
+### Demo accounts
+
+Every seeded user shares one password: `mobica-demo`.
+
+| Email | Role |
+|---|---|
+| planner@mobica.demo | PLANNER |
+| buyer@mobica.demo | BUYER |
+| manager@mobica.demo | MANAGER |
+| warehouse@mobica.demo | WAREHOUSE |
+
+`SESSION_SECRET` in `.env` is a demo-only value committed for a zero-setup clone — rotate it before any real deployment.
+
 ## Where the core logic lives
 
 - `lib/netting.ts` — the pure time-phased netting arithmetic (Gross Requirement − Supply = Net Requirement → MOQ/order-multiple policy → Planned Order). No Prisma, no I/O — fully unit-tested in `lib/netting.test.ts` against the exact cases in the blueprint (simple shortage, no shortage, open PO covering demand, delayed PO, MOQ, order multiple, safety stock, lead time, forecast revision, multi-period carry-forward).
@@ -55,7 +68,7 @@ See `prisma/schema.prisma`. Notably:
 | Materials, suppliers, lead times, opening stock, one Citroën forecast version | Migrated from the four provided source files |
 | Forecast upload → detect → review → confirm | Functional for both the known CW-grid layout and a generic part/qty/date table; a genuinely novel layout still needs the AI-assisted mapping from Section 42 of the blueprint, not yet built |
 | Open PO / shipment → scheduled receipt netting | Live: `/purchase-orders` and `/shipments` create real `POLine` → `ShipmentLine` records; a `CONFIRMED`-confidence shipment with an ETA nets against demand in the MRP grid, and marking a shipment `DELIVERED` auto-posts a `RECEIPT` inventory transaction (Section 33: arrival ≠ available stock until received). The source shipment log has no material-level line items to *migrate*, so no POs are seeded from it — everything here is created going forward through the app. Approving and converting a planned order also now creates a real `PurchaseOrder`, not just a status flip |
-| Auth / roles | Schema has `User.role`; no login screen yet — the planner console currently attributes actions to a fixed demo user (see `lib/useCurrentUser.ts`) |
+| Auth / roles | Live: `/login`, session cookie (signed JWT via `jose`, `proxy.ts` gates every page and API route), and a role permission matrix (`lib/permissions.ts`) enforced server-side on every mutating route — the audit trail's `userId` comes from the verified session, never from the request body. Demo accounts below; role-based *button visibility* in the UI is not yet implemented (the server enforces correctly, but a WAREHOUSE user still sees an Approve button that will 403) |
 | Working-day/holiday calendars, statistical lead-time confidence, scenario simulation, ABC/XYZ analytics, supplier risk scoring | Explicitly out of MVP scope per the blueprint (Section J/K) |
 
 ## Tests

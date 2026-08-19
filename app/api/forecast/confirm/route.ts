@@ -2,11 +2,11 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import type { CandidateForecastLine } from "@/lib/forecastParser";
+import { requireRole, isSessionPayload } from "@/lib/permissions";
 
 const bodySchema = z.object({
   stagingId: z.string(),
   accountId: z.string(),
-  uploadedById: z.string().optional(),
   notes: z.string().optional(),
   // The planner may have edited variant codes / dropped rows in the UI
   // before confirming — if provided, this replaces the staged lines.
@@ -27,9 +27,13 @@ const bodySchema = z.object({
 // a prior version (Section 7 of the blueprint) — versionNumber always
 // increments per project.
 export async function POST(req: Request) {
+  const actorOrError = requireRole(req, ["PLANNER", "MANAGER", "ADMIN"]);
+  if (!isSessionPayload(actorOrError)) return actorOrError;
+  const uploadedById = actorOrError.sub;
+
   const parsed = bodySchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { stagingId, accountId, uploadedById, notes } = parsed.data;
+  const { stagingId, accountId, notes } = parsed.data;
 
   const staging = await prisma.forecastStaging.findUnique({ where: { id: stagingId } });
   if (!staging) return NextResponse.json({ error: "Staged upload not found or already confirmed" }, { status: 404 });

@@ -7,7 +7,12 @@ export async function GET(req: Request) {
 
   const versions = await prisma.forecastVersion.findMany({
     where: projectId ? { projectId } : undefined,
-    include: { account: true, project: true, uploadedBy: true, _count: { select: { lines: true } } },
+    include: {
+      account: true,
+      project: true,
+      uploadedBy: { select: { id: true, name: true, role: true } },
+      _count: { select: { lines: true } },
+    },
     orderBy: [{ projectId: "asc" }, { versionNumber: "desc" }],
   });
   return NextResponse.json(versions);

@@ -8,10 +8,17 @@
  */
 import ExcelJS from "exceljs";
 import path from "path";
+import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 const DATA_DIR = path.join(process.cwd(), "data");
+
+// Demo credentials — every seeded user shares this password so the
+// README can hand out one login line. Real deployments replace this
+// with proper account provisioning; nothing about the auth flow itself
+// depends on shared passwords.
+const DEMO_PASSWORD = "mobica-demo";
 
 // ---------------------------------------------------------------------
 // Explicit Supplier Plant registry.
@@ -158,14 +165,15 @@ async function main() {
   // -------------------------------------------------------------
   // Users
   // -------------------------------------------------------------
+  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
   const planner = await prisma.user.create({
-    data: { name: "Supply Chain Specialist", email: "planner@mobica.demo", role: "PLANNER" },
+    data: { name: "Supply Chain Specialist", email: "planner@mobica.demo", role: "PLANNER", passwordHash },
   });
   await prisma.user.createMany({
     data: [
-      { name: "Buyer", email: "buyer@mobica.demo", role: "BUYER" },
-      { name: "SCM Manager", email: "manager@mobica.demo", role: "MANAGER" },
-      { name: "Warehouse", email: "warehouse@mobica.demo", role: "WAREHOUSE" },
+      { name: "Buyer", email: "buyer@mobica.demo", role: "BUYER", passwordHash },
+      { name: "SCM Manager", email: "manager@mobica.demo", role: "MANAGER", passwordHash },
+      { name: "Warehouse", email: "warehouse@mobica.demo", role: "WAREHOUSE", passwordHash },
     ],
   });
 

@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useCurrentUser } from "@/lib/useCurrentUser";
 
 const LINKS = [
   { href: "/", label: "Dashboard", icon: "◧" },
@@ -17,6 +18,17 @@ const LINKS = [
 
 export function SideNav() {
   const pathname = usePathname();
+  const router = useRouter();
+  const user = useCurrentUser();
+
+  if (pathname === "/login") return null;
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+    router.refresh();
+  }
+
   return (
     <nav className="w-56 shrink-0 border-r border-[var(--line)] bg-[var(--surface)] flex flex-col">
       <div className="px-4 py-4 border-b border-[var(--line)]">
@@ -41,8 +53,11 @@ export function SideNav() {
         })}
       </div>
       <div className="px-4 py-3 border-t border-[var(--line)] text-xs text-[var(--ink-soft)]">
-        <div className="font-semibold text-[var(--ink)]">Supply Chain Specialist</div>
-        <div>Planner console — demo session</div>
+        <div className="font-semibold text-[var(--ink)]">{user?.name ?? "…"}</div>
+        <div className="mb-2">{user?.role ?? "Loading"}</div>
+        <button onClick={logout} className="btn w-full text-xs py-1">
+          Sign out
+        </button>
       </div>
     </nav>
   );

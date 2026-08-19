@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireRole, isSessionPayload } from "@/lib/permissions";
 
 export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -21,7 +22,6 @@ const bodySchema = z.object({
   eta: z.string().optional(),
   ets: z.string().optional(),
   customsStatus: z.string().optional(),
-  userId: z.string().optional(),
 });
 
 // Section 33 of the blueprint: arrival != available inventory. Setting
@@ -30,13 +30,17 @@ const bodySchema = z.object({
 // as receiving-complete; a separate inspection/quality-hold gate is a
 // documented post-MVP step (Section 33) once QC data exists to migrate.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const actorOrError = requireRole(req, ["BUYER", "PLANNER", "WAREHOUSE", "MANAGER", "ADMIN"]);
+  if (!isSessionPayload(actorOrError)) return actorOrError;
+  const userId = actorOrError.sub;
+
   const { id } = await params;
   const existing = await prisma.shipment.findUnique({ where: { id }, include: { lines: true } });
   if (!existing) return NextResponse.json({ error: "Shipment not found" }, { status: 404 });
 
   const parsed = bodySchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { status, confidence, eta, ets, customsStatus, userId } = parsed.data;
+  const { status, confidence, eta, ets, customsStatus } = parsed.data;
 
   const becomingDelivered = status === "DELIVERED" && existing.status !== "DELIVERED";
 

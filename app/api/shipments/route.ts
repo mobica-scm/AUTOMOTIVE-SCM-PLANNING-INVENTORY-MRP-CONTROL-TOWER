@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireRole, isSessionPayload } from "@/lib/permissions";
 
 export async function GET() {
   const shipments = await prisma.shipment.findMany({
@@ -28,6 +29,10 @@ const bodySchema = z.object({
 // shipment before its PO is finalized (seen in the real shipment log:
 // "PO: Not yet") is allowed here — purchaseOrderId is optional.
 export async function POST(req: Request) {
+  const actorOrError = requireRole(req, ["BUYER", "PLANNER", "WAREHOUSE", "MANAGER", "ADMIN"]);
+  if (!isSessionPayload(actorOrError)) return actorOrError;
+  const actor = actorOrError;
+
   const parsed = bodySchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { blNumber, purchaseOrderId, mode, shippingLine, pol, pod, ets, eta, confidence, lines } = parsed.data;
@@ -49,7 +54,14 @@ export async function POST(req: Request) {
   });
 
   await prisma.auditLog.create({
-    data: { entityType: "Shipment", entityId: shipment.id, action: "CREATE", afterJson: JSON.stringify(shipment), reason: "Logged via planner console" },
+    data: {
+      entityType: "Shipment",
+      entityId: shipment.id,
+      action: "CREATE",
+      afterJson: JSON.stringify(shipment),
+      userId: actor.sub,
+      reason: "Logged via planner console",
+    },
   });
 
   return NextResponse.json(shipment, { status: 201 });

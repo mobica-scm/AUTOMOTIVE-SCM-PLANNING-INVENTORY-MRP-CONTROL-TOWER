@@ -1,23 +1,29 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireRole, isSessionPayload } from "@/lib/permissions";
 
 const bodySchema = z.object({
   action: z.enum(["OVERRIDE", "APPROVE", "REJECT", "CONVERT"]),
   finalQty: z.number().optional(), // required for OVERRIDE
   reason: z.string().optional(),
-  userId: z.string(),
 });
 
 // A single decision endpoint for a planned order — override / approve /
 // reject / convert-to-PO. The system's own recommendedQty is never
 // mutated; overrides are recorded alongside it (Section 38: never
-// destroy the original calculation).
+// destroy the original calculation). The deciding user comes from the
+// session, not the request body — a client can no longer attribute its
+// own action to someone else.
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const actorOrError = requireRole(req, ["PLANNER", "BUYER", "MANAGER", "ADMIN"]);
+  if (!isSessionPayload(actorOrError)) return actorOrError;
+  const userId = actorOrError.sub;
+
   const { id } = await params;
   const parsed = bodySchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
-  const { action, finalQty, reason, userId } = parsed.data;
+  const { action, finalQty, reason } = parsed.data;
 
   const existing = await prisma.plannedOrder.findUnique({ where: { id } });
   if (!existing) return NextResponse.json({ error: "Planned order not found" }, { status: 404 });

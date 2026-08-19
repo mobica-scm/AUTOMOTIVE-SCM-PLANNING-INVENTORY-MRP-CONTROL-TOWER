@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireRole, isSessionPayload } from "@/lib/permissions";
 
 export async function GET() {
   const orders = await prisma.purchaseOrder.findMany({
@@ -29,6 +30,10 @@ const bodySchema = z.object({
 // to MRP only once a Shipment links a line to it with CONFIRMED confidence
 // (Section 13 of the blueprint: confirmed vs. unconfirmed incoming supply).
 export async function POST(req: Request) {
+  const actorOrError = requireRole(req, ["BUYER", "PLANNER", "MANAGER", "ADMIN"]);
+  if (!isSessionPayload(actorOrError)) return actorOrError;
+  const actor = actorOrError;
+
   const parsed = bodySchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const { poNumber, supplierPlantId, orderDate, lines } = parsed.data;
@@ -54,7 +59,14 @@ export async function POST(req: Request) {
   });
 
   await prisma.auditLog.create({
-    data: { entityType: "PurchaseOrder", entityId: po.id, action: "CREATE", afterJson: JSON.stringify(po), reason: "Created via planner console" },
+    data: {
+      entityType: "PurchaseOrder",
+      entityId: po.id,
+      action: "CREATE",
+      afterJson: JSON.stringify(po),
+      userId: actor.sub,
+      reason: "Created via planner console",
+    },
   });
 
   return NextResponse.json(po, { status: 201 });

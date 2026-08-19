@@ -14,7 +14,11 @@ export async function GET() {
       prisma.exception.groupBy({ by: ["severity"], where: { status: "OPEN" }, _count: true }),
     ]);
 
-  const recentAudit = await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 15, include: { user: true } });
+  const recentAudit = await prisma.auditLog.findMany({
+    orderBy: { createdAt: "desc" },
+    take: 15,
+    include: { user: { select: { id: true, name: true, role: true } } },
+  });
 
   return NextResponse.json({
     materialCount,

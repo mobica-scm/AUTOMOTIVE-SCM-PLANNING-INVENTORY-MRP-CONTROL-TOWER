@@ -7,7 +7,7 @@ export async function GET(req: Request) {
 
   const orders = await prisma.plannedOrder.findMany({
     where: status ? { status } : undefined,
-    include: { material: true, supplierPlant: { include: { supplierCompany: true } }, decidedBy: true },
+    include: { material: true, supplierPlant: { include: { supplierCompany: true } }, decidedBy: { select: { id: true, name: true, role: true } } },
     orderBy: { needDate: "asc" },
   });
   return NextResponse.json(orders);

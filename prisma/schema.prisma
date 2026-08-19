@@ -20,11 +20,12 @@ datasource db {
 // ---------------------------------------------------------------------
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  role      String // PLANNER | BUYER | WAREHOUSE | MANAGER | ADMIN
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  role         String // PLANNER | BUYER | WAREHOUSE | MANAGER | ADMIN
+  createdAt    DateTime @default(now())
 
   forecastVersions      ForecastVersion[]
   plannedOrderDecisions PlannedOrder[]    @relation("DecidedBy")

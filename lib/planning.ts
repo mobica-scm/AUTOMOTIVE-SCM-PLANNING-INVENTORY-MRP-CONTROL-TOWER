@@ -9,7 +9,7 @@ import { runMrpForProject, type MrpRunResult } from "./mrp";
  * keeps overrides safe across repeated MRP runs (Section 38 of the
  * blueprint: never destroy a human decision by recalculating).
  */
-export async function runAndPersistMrp(projectId: string, opts?: { horizonWeeks?: number }): Promise<MrpRunResult> {
+export async function runAndPersistMrp(projectId: string, opts?: { horizonWeeks?: number; actorId?: string }): Promise<MrpRunResult> {
   const result = await runMrpForProject(projectId, opts);
 
   for (const m of result.materials) {
@@ -67,6 +67,7 @@ export async function runAndPersistMrp(projectId: string, opts?: { horizonWeeks?
       entityId: result.forecastVersionId || result.projectId,
       action: "CREATE",
       afterJson: JSON.stringify({ materialsEvaluated: result.materials.length, horizonWeeks: result.horizonWeeks }),
+      userId: opts?.actorId,
       reason: "MRP run triggered from planner console",
     },
   });

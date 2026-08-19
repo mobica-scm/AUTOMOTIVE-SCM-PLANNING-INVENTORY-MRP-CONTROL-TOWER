@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireRole, isSessionPayload } from "@/lib/permissions";
 
 const bodySchema = z.object({
   materialId: z.string(),
@@ -10,6 +11,9 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const actorOrError = requireRole(req, ["BUYER", "PLANNER", "MANAGER", "ADMIN"]);
+  if (!isSessionPayload(actorOrError)) return actorOrError;
+
   const { id } = await params;
   const po = await prisma.purchaseOrder.findUnique({ where: { id } });
   if (!po) return NextResponse.json({ error: "Purchase order not found" }, { status: 404 });

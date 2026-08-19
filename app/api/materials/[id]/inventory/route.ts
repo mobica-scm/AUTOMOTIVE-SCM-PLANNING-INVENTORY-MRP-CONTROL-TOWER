@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { requireRole, isSessionPayload } from "@/lib/permissions";
 
 const bodySchema = z.object({
   type: z.enum(["RECEIPT", "ISSUE", "ADJUSTMENT", "SCRAP", "TRANSFER"]),
@@ -12,6 +13,10 @@ const bodySchema = z.object({
 // Every stock change is posted as a new, signed InventoryTransaction —
 // balances are never edited in place (Section 12/38 of the blueprint).
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
+  const actorOrError = requireRole(req, ["PLANNER", "WAREHOUSE", "MANAGER", "ADMIN"]);
+  if (!isSessionPayload(actorOrError)) return actorOrError;
+  const actor = actorOrError;
+
   const { id } = await params;
   const material = await prisma.material.findUnique({ where: { id } });
   if (!material) return NextResponse.json({ error: "Material not found" }, { status: 404 });
@@ -32,6 +37,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       entityId: txn.id,
       action: "CREATE",
       afterJson: JSON.stringify(txn),
+      userId: actor.sub,
       reason: note ?? `${type} posted via planner console`,
     },
   });

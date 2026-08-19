@@ -3,17 +3,17 @@ import { useEffect, useState } from "react";
 
 type User = { id: string; name: string; email: string; role: string };
 
-// MVP has no auth layer yet (Section 47 is a documented future phase) —
-// the planner console attributes actions to a fixed demo "Supply Chain
-// Specialist" user so overrides/approvals still carry a real audit
-// trail. Swapping in real auth later only changes how this id is
-// resolved, not any of the call sites that use it.
+// The logged-in user, per the session cookie set by /api/auth/login.
+// Every mutating API route also derives its own actor from the session
+// server-side (lib/session.ts's getSessionUser) rather than trusting
+// this — the client-side value here is for display and for convenience
+// in request bodies that don't strictly need server verification.
 export function useCurrentUser() {
   const [user, setUser] = useState<User | null>(null);
   useEffect(() => {
-    fetch("/api/users")
-      .then((r) => r.json())
-      .then((users: User[]) => setUser(users.find((u) => u.role === "PLANNER") ?? users[0] ?? null))
+    fetch("/api/auth/me")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(setUser)
       .catch(() => setUser(null));
   }, []);
   return user;
