@@ -1,17 +1,18 @@
 // SCM Planning, Inventory & MRP Control Tower — data model
 //
-// Dev/demo runs on SQLite so the app boots with zero external services.
-// The shape is Postgres-ready (no SQLite-only features used); switching
-// `provider` to "postgresql" and pointing DATABASE_URL at a real instance
-// is the only change needed for production. Enums are modeled as
-// documented String fields because SQLite has no native enum type.
+// Runs on Postgres (Supabase in the deployed environment) — required
+// for Vercel: serverless functions get a fresh, throwaway filesystem
+// per invocation, so a file-based SQLite database cannot persist there.
+// "Enums as String" predates this switch (kept for now to avoid an
+// unnecessary migration; moving them to native Postgres enums is a
+// safe follow-up, not required for correctness).
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

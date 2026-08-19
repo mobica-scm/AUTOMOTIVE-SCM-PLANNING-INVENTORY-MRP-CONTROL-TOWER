@@ -30,15 +30,10 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files — real DATABASE_URL / SESSION_SECRET values live here now
+# (Postgres, not the old local SQLite file), never commit this.
 .env*
-# DATABASE_URL here is just a local SQLite file path, not a secret —
-# committed so a fresh clone runs without manual setup.
-!.env
-
-# SQLite dev database (regenerate with `npm run db:seed`)
-/prisma/dev.db
-/prisma/dev.db-journal
+!.env.example
 
 # vercel
 .vercel

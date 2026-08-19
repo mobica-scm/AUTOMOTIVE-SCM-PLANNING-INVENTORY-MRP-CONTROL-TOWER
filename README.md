@@ -14,20 +14,21 @@ sheet) — not synthetic data.
 ## Stack
 
 - **Next.js 16 (App Router) + TypeScript + Tailwind** — UI and API routes in one app.
-- **Prisma + SQLite** for dev/demo (zero external services to run this). The schema uses no SQLite-only features; switching `provider` in `prisma/schema.prisma` to `"postgresql"` and pointing `DATABASE_URL` at a real instance is the only change needed for production, per the blueprint's technology architecture (Section B).
+- **Prisma + Postgres** (Supabase in the deployed environment). Required, not just recommended: Vercel's serverless functions get a fresh filesystem per invocation, so a file-based database (SQLite) can't persist there.
 - **ExcelJS** for all spreadsheet parsing (one-time seed migration and the live forecast-upload pipeline).
 - **Vitest** for the MRP engine's unit tests.
 
-## Running it
+## Running it locally
 
 ```bash
 npm install
-npx prisma migrate dev   # creates prisma/dev.db
-npm run db:seed          # loads the four files in ./data into it
-npm run dev               # http://localhost:3000
+cp .env.example .env        # fill in DATABASE_URL + SESSION_SECRET
+npx prisma migrate dev      # applies the schema to your Postgres instance
+npm run db:seed             # loads the four files in ./data into it
+npm run dev                 # http://localhost:3000
 ```
 
-`npm run db:seed` is destructive (it wipes and reloads all tables) — use it to reset to a clean, known state at any time.
+`npm run db:seed` is destructive (it wipes and reloads all tables) — use it to reset to a clean, known state at any time. It's safe to point at a Supabase dev/staging project.
 
 ### Demo accounts
 
@@ -40,7 +41,14 @@ Every seeded user shares one password: `mobica-demo`.
 | manager@mobica.demo | MANAGER |
 | warehouse@mobica.demo | WAREHOUSE |
 
-`SESSION_SECRET` in `.env` is a demo-only value committed for a zero-setup clone — rotate it before any real deployment.
+## Deploying (Vercel + Supabase)
+
+1. **Database** — create a Supabase project, then in Project Settings → Database copy the **Transaction pooler** connection string (port 6543) — that's the one that works from Vercel's serverless functions. Run `npx prisma migrate dev` and `npm run db:seed` against it once from your own machine (or ask Claude to, if it has a Supabase connector connected) to create the schema and load the demo data.
+2. **Hosting** — in the Vercel dashboard: **Add New → Project → Import Git Repository**, pick this repo. Vercel auto-detects Next.js; no build config needed.
+3. **Environment variables** — in the Vercel project's Settings → Environment Variables, add:
+   - `DATABASE_URL` — the Supabase pooler connection string from step 1.
+   - `SESSION_SECRET` — a fresh value, **not** the one in `.env.example`. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`.
+4. **Deploy.** Every subsequent push to this branch redeploys automatically.
 
 ## Where the core logic lives
 
